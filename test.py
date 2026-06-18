@@ -1,0 +1,1 @@
+print("lihat nih aku bisa buat dan edit file")

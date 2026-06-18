@@ -1,19 +1,31 @@
-from groq import Groq
-from config import GROQ_API_KEY, MODEL_NAME
+import time
+from openai import OpenAI
+from config import NVIDIA_API_KEY, MODEL_NAME
 
-client = Groq(api_key=GROQ_API_KEY)
+client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=NVIDIA_API_KEY
+)
 
-def generate_response(messages):
-    """Menghubungkan ke Groq API dengan parameter yang kompatibel."""
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            temperature=1,
-            max_tokens=1024,
-            top_p=1,
-            stream=True,
-        )
-        return completion
-    except Exception as e:
-        return str(e)
+def chat(messages: list[dict]) -> str:
+    if len(messages) > 12:
+        system = [m for m in messages if m["role"] == "system"]
+        recent = [m for m in messages if m["role"] != "system"][-10:]
+        messages = system + recent
+
+    for attempt in range(4):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            wait = 5 * (attempt + 1)
+            print(f"[LLM] Error: {e} | retry {attempt+1}/4 wait {wait}s")
+            time.sleep(wait)
+
+    raise RuntimeError("LLM failed after retries")
