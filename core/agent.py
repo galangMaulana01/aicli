@@ -6,15 +6,32 @@ from tools.read import read_file
 from tools.edit import edit_file
 from tools.scan import scan_directory
 
+# core/agent.py (bagian SYSTEM_PROMPT)
 SYSTEM_PROMPT = (
     "Kamu adalah AI Developer Agent CLI.\n"
-    "SATU TOOL PER RESPONSE. STOP setelah tool.\n"
-    "Gunakan tool hanya jika user minta eksplisit.\n\n"
-    "[READ:], [EDIT:], [SCAN:] hanya format valid.\n"
-    "Jangan auto scan, jangan auto edit.\n"
+    "Tugasmu: memahami instruksi bahasa alami dari user, lalu menjalankan tindakan yang diminta.\n"
+    "Kamu TIDAK perlu meminta konfirmasi untuk setiap langkah — lakukan langsung.\n"
+    "Jika instruksi kompleks, bagi menjadi langkah-langkah kecil dan eksekusi satu per satu.\n\n"
+    "CARA MENJALANKAN TINDAKAN:\n"
+    "1. Jika user minta membaca file → tulis [READ: path/to/file]\n"
+    "2. Jika user minta scan direktori → tulis [SCAN: path/to/dir]\n"
+    "3. Jika user minta mengubah file → tulis [EDIT: path/to/file] diikuti blok kode lengkap dalam triple backticks.\n"
+    "   Contoh:\n"
+    "   [EDIT: ./ui/cli.py]\n"
+    "   ```python\n"
+    "   # kode baru\n"
+    "   ```\n\n"
+    "Aturan:\n"
+    "- SATU TOOL per respons. Jangan gabungkan beberapa tool.\n"
+    "- Jika tool sudah dieksekusi, lihat hasilnya dan lanjutkan ke langkah berikutnya.\n"
+    "- Jangan ulangi tool yang sama jika sudah berhasil.\n"
+    "- Jika menemui error, beritahu user dan tawarkan solusi.\n"
+    "- Jangan mengubah file yang diproteksi: core/agent.py, core/llm.py, main.py, config.py.\n"
+    "- Jika user meminta sesuatu yang tidak bisa dilakukan, jelaskan dengan jelas.\n"
+    "- PENTING: Setelah semua langkah selesai, berikan ringkasan akhir dan JANGAN keluarkan tool apapun lagi. Akhiri respons tanpa tag [READ:], [SCAN:], atau [EDIT:].\n"
 )
 
-# Perbaikan: tambahkan nama group <path> dan <code>
+# Regex untuk mendeteksi tag (tetap sama)
 _RE_READ = re.compile(r"\[READ:\s*(?P<path>[^\]]+)\]")
 _RE_SCAN = re.compile(r"\[SCAN:\s*(?P<path>[^\]]+)\]")
 _RE_EDIT = re.compile(
@@ -49,7 +66,7 @@ def _execute_tool(tool: dict) -> str:
     kind = tool["type"]
     path = tool["path"]
     if kind == "edit" and path in PROTECTED_FILES:
-        return f"BLOCKED: {path}"
+        return f"BLOCKED: {path} (protected)"
     if kind == "read":
         result = read_file(path)
         return f"[TOOL_RESULT]\n{result}"
@@ -68,13 +85,13 @@ def run_agent(user_message: str, history: list[dict]) -> Generator[str, None, li
         history.append({"role": "assistant", "content": response})
         tools = _detect_tools(response)
         if not tools:
+            # Tidak ada tool — kirim respons langsung
             yield response
             return history
         # Eksekusi tool
         result = _execute_tool(tools[0])
         history.append({"role": "system", "content": result})
-        # Yield hasil tool agar user melihat progress
-        yield result
-        # LANJUTKAN LOOP — biarkan agent merespons hasil tool
+        yield f"[TOOL RESULT]\n{result}"  # tampilkan hasil ke user
+        # Loop berlanjut agar agent bisa merespons hasil
     yield "[STOP] max iteration reached"
     return history
